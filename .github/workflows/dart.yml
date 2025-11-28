@@ -107,6 +107,85 @@ jobs:
       - name: 验证 Flutter 环境
         run: flutter doctor -v
 
+      - name: 修复 build.gradle.kts 签名配置
+        run: |
+          # 修复签名配置，使其在 key.properties 不存在时不会报错
+          cat > simple_live_app/android/app/build.gradle.kts << 'EOF'
+          import java.util.Properties
+          import java.io.FileInputStream
+
+          plugins {
+              id("com.android.application")
+              id("kotlin-android")
+              id("dev.flutter.flutter-gradle-plugin")
+          }
+
+          val keystoreProperties = Properties()
+          val keystorePropertiesFile = rootProject.file("key.properties")
+          val hasKeystore = keystorePropertiesFile.exists()
+          if (hasKeystore) {
+              keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+          }
+
+          android {
+              namespace = "com.xycz.simple_live"
+              compileSdk = flutter.compileSdkVersion
+              ndkVersion = flutter.ndkVersion
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_11
+                  targetCompatibility = JavaVersion.VERSION_11
+              }
+
+              kotlinOptions {
+                  jvmTarget = JavaVersion.VERSION_11.toString()
+              }
+
+              defaultConfig {
+                  applicationId = "com.xycz.simple_live"
+                  minSdk = flutter.minSdkVersion
+                  targetSdk = flutter.targetSdkVersion
+                  versionCode = flutter.versionCode
+                  versionName = flutter.versionName
+              }
+
+              if (hasKeystore) {
+                  signingConfigs {
+                      create("release") {
+                          keyAlias = keystoreProperties["keyAlias"] as String
+                          keyPassword = keystoreProperties["keyPassword"] as String
+                          storeFile = keystoreProperties["storeFile"]?.let { file(it) }
+                          storePassword = keystoreProperties["storePassword"] as String
+                          isV1SigningEnabled = true
+                          isV2SigningEnabled = true
+                      }
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      signingConfig = if (hasKeystore) {
+                          signingConfigs.getByName("release")
+                      } else {
+                          signingConfigs.getByName("debug")
+                      }
+                      isMinifyEnabled = true
+                      isShrinkResources = true
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
+                  }
+              }
+          }
+
+          flutter {
+              source = "../.."
+          }
+          EOF
+          # 移除 heredoc 产生的前导空格
+          sed -i 's/^          //' simple_live_app/android/app/build.gradle.kts
+
       - name: 获取依赖
         run: |
           cd simple_live_app
